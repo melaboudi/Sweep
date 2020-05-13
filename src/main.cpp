@@ -1,4 +1,4 @@
-#define MOTO
+// #define MOTO
 //inits
   #include "LowPower.h"
   #include "PinChangeInterrupt.h"
@@ -38,10 +38,6 @@
   uint16_t FirstStartCounter = 0;
   uint16_t ReStartCounter=0;
   bool onOff = true;
-  unsigned long t1 = 0; //le temps du dernier point inséré
-  unsigned long t2 = 0; //le temps du dernier point capté
-  uint16_t ti = 6; //le temps entre chaque insertion
-  unsigned long t3 = 0; //le temps du dernier envoie
   unsigned long unixTimeInt = 0;
   uint16_t SizeRec = 51; //=sizeSend -imei=66-15
   uint16_t sizeSend=66;
@@ -64,12 +60,13 @@
   //6  25----4Points 8secondsSend
   int badCharCounter=0;
   // uint16_t httpTimeout=8000;  //voiture 07 06/05/2020 from 9am to 10am ¬OK
-  uint16_t httpTimeout=8000;  //voiture 07
+  uint16_t httpTimeout=20000;  //voiture 07
   uint64_t lastSend =0;
   uint16_t reps=0;
   char* one="1";
   char* zero="0";
   bool ping=true;
+  bool found=false;
   bool httpPostCustom(char custom);
   void badCharChecker(String data);
   void IntRoutine(void);
@@ -116,8 +113,16 @@
   int getBatchCounter(uint16_t i);
   bool gps();
   void sendFromFram(uint16_t start,uint16_t length);
-  int limitToSend =7;
-  unsigned long te = 35; //le temps entre les envoies
+  void updateGpsTime();
+
+  int limitToSend =20;
+  unsigned long te =580; //le temps entre les envoies
+  // unsigned long te =574; //le temps entre les envoies
+  unsigned long t1 = 0; //le temps du dernier point inséré
+  unsigned long t2 = 0; //le temps du dernier point capté
+  uint16_t ti = 30; //le temps entre chaque insertion
+  // uint16_t ti = 30; //le temps entre chaque insertion
+  unsigned long t3 = 0; //le temps du dernier envoie
   String previousUnixTime="";
   uint16_t iterations=880; //sleeping time = iterations X 8 Seconds
   void setup() {
@@ -149,72 +154,55 @@
       delay(500);
     }
     gprsOn();httpPing();gps();
-    attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(intPin), IntRoutine, RISING);
+    // attachPinChangeInterrupt(digitalPagit diffinToPinChangeInterrupt(intPin), IntRoutine, RISING);
     // writeDataFramDebug("x",32079);
   }
 
 void loop() {
   if(getCounter()>480){clearMemory(31999);clearMemoryDebug(32003);resetSS();}
-  enablePinChangeInterrupt(digitalPinToPinChangeInterrupt(intPin));
-  if (digitalRead(8)) {            //if the engine is powered on
-    gps();                         //get a new gps point all the time
-    if((t2 - t3) >= (te-8)){t3=t2; //wait until it's 8 seconds before it's time to send
-      httpPing();gps();            //Ping the server and get a new gps point
-      if(!ping){
-        if ((getCounter()%limitToSend)!=0) //if we have collected any new points since the last send, send them
-        {
-          uint16_t batchCounter=getCounter()/limitToSend;
-          uint16_t startingPoint=batchCounter*limitToSend;
-          if(httpPostFromTo(startingPoint,getCounter())){
-          clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
-          decrementCounter(getCounter()%limitToSend);
-          }
-        }else{                     //if we have collected a complete batch, send it
-          uint16_t batchCounter=getCounter()/limitToSend-1;
-          uint16_t startingPoint=batchCounter*limitToSend;
-          if(getBatchCounter(batchCounter)==1){
-            if(httpPostFromTo((batchCounter)*limitToSend,((batchCounter+1)*limitToSend))){
-              clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
-              decrementCounter(limitToSend);
+  updateGpsTime();
+  if((t2 - t1) >= (ti-1)){
+    if (!getGpsData()) {
+      if (!getGnsStat()) {if (gnsFailCounter == 2) {resetSS();} else {turnOnGns();delay(1000);gnsFailCounter++;}}
+        if(restarted){if (ReStartCounter == 10) {resetSS();}else {delay(2000);ReStartCounter++;}
+        }else if (started){if (FirstStartCounter == 1) {resetSS();}else{delay(60000);FirstStartCounter++;}
+        }else if((!restarted)&&(!started)){if (gpsFailCounter == 10) {resetSS();}else {delay(1000);gpsFailCounter++;}}
+    }else{
+      t1=t2;
+      if(((t2 - t3) >= (te-15))){
+        t3=t2; 
+        if ((getCounter()%limitToSend)!=0) 
+        { 
+          httpPing();
+          if(!ping){
+            uint16_t batchCounter=getCounter()/limitToSend;
+            uint16_t startingPoint=batchCounter*limitToSend;
+            if(httpPostFromTo(startingPoint,getCounter())){
+            clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+            decrementCounter(getCounter()%limitToSend);
+            for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+              if(getBatchCounter(i)==1){found=true;}
+            }if(!found){clearMemoryDebug(32003);}
+            }else{                     //if we have collected a complete batch, send it
+              uint16_t batchCounter=getCounter()/limitToSend-1;
+              uint16_t startingPoint=batchCounter*limitToSend;
+              if(getBatchCounter(batchCounter)==1){
+                if(httpPostFromTo((batchCounter)*limitToSend,((batchCounter+1)*limitToSend))){
+                  clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+                  decrementCounter(limitToSend);
+                  for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+                    if(getBatchCounter(i)==1){found=true;}
+                  }if(!found){clearMemoryDebug(32003);}
+                }
+              }
             }
           }
         }
-      }
+      }else {                          
+        if ((getCounter()>=limitToSend)&&((t2 - t3) < (te-40))){httpTimeout=27000;httpPostMaster();httpTimeout=8000;}
+        }
     }
-  }else {                          //if the engine is powered off
-    httpTimeout=10000;
-    while ((getCounter()!=0)&&(!digitalRead(8))){httpPostMaster();}
-    httpTimeout=8000;
-    httpPostCustom('0');
-    powerDown();
-    attachPinChangeInterrupt(digitalPinToPinChangeInterrupt(intPin), IntRoutine, RISING);
-    Serial.flush();
-    while (wakeUpCounter <= iterations) {
-    #ifdef MOTO
-      Wire.beginTransmission(8);
-      Wire.write('f');
-      Wire.endTransmission();
-    #endif
-      LowPower.idle(SLEEP_8S, ADC_OFF, TIMER2_OFF, TIMER1_OFF, TIMER0_OFF, SPI_OFF, USART0_ON, TWI_OFF);
-      if (digitalRead(8)){wakeUpCounter= iterations;}
-      wakeUpCounter++;
-    }
-    if (wakeUpCounter != (iterations+1)) {                  //Vehicule ignition wakeup
-    #ifdef MOTO
-      Wire.beginTransmission(8);
-      Wire.write('n');
-      Wire.endTransmission();
-    #endif
-      powerUp();turnOnGns(); gprsOn();
-      wakeUpCounter = 0;  
-      httpPostCustom('1');
-    }else {                                                 //WD timer wakeups
-      powerUp();turnOnGns();gprsOn();
-      wakeUpCounter = 0;
-      httpPostCustom('1');
-      gps();
-    }
-  }
+}
 }
 void httpPostMaster(){
   for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
@@ -230,18 +218,18 @@ void httpPostMaster(){
       }
     }
   }
-  if((getCounter()%limitToSend)!=0){
-    uint16_t reps= (getCounter()/limitToSend);         
-    if(httpPostFromTo((reps*limitToSend),getCounter())){
-      clearMemoryDiff(reps*limitToSend*SizeRec,getCounter()*SizeRec); 
-      clearMemoryDebug(32003);
-    }else{
-      uint8_t j=0;while (ping&&(j<3)){httpPing();j++;}if (j==3){resetSS();}
-      httpPostFromTo(reps*limitToSend,getCounter());
-      clearMemoryDiff(reps*limitToSend*SizeRec,getCounter()*SizeRec); 
-      clearMemoryDebug(32003);
-    }
-  }else{clearMemoryDebug(32003);}
+  // if((getCounter()%limitToSend)!=0){
+  //   uint16_t reps= (getCounter()/limitToSend);         
+  //   if(httpPostFromTo((reps*limitToSend),getCounter())){
+  //     clearMemoryDiff(reps*limitToSend*SizeRec,getCounter()*SizeRec); 
+  //     clearMemoryDebug(32003);
+  //   }else{
+  //     uint8_t j=0;while (ping&&(j<3)){httpPing();j++;}if (j==3){resetSS();}
+  //     httpPostFromTo(reps*limitToSend,getCounter());
+  //     clearMemoryDiff(reps*limitToSend*SizeRec,getCounter()*SizeRec); 
+  //     clearMemoryDebug(32003);
+  //   }
+  // }else{clearMemoryDebug(32003);}
 }
 
 
@@ -527,6 +515,42 @@ bool getGpsData() {
       insertMem();
       return true;
     } else {return false;badCharCounter=0;}  
+}
+void updateGpsTime() {
+  fixStatus = gpsTime = latitude = longitude = used_satellites = viewed_satellites = speed = " ";
+  Serial.setTimeout(2000);
+  flushSim();
+  char gpsData[120] = {0};
+  Serial.println("AT+CGNSINF");
+  Serial.readBytesUntil('O', gpsData, 119);
+    String gpsdatastr = String(gpsData);
+
+    uint8_t ind1 = gpsdatastr.indexOf(',');
+    //  String mode = gpsdatastr.substring(0, ind1);
+
+    uint8_t ind2 = gpsdatastr.indexOf(',', ind1 + 1);
+    fixStatus = gpsdatastr.substring(ind1 + 1, ind2);
+    fixStatus = fixStatus.substring(0, 1);
+    
+    uint8_t ind3 = gpsdatastr.indexOf(',', ind2 + 1);
+    String utctime = gpsdatastr.substring(ind2 + 1, ind3);
+    timestamp32bits stamp = timestamp32bits();
+
+    unixTimeInt = stamp.timestamp(
+                    (utctime.substring(2, 4)).toInt(),
+                    (utctime.substring(4, 6)).toInt(),
+                    (utctime.substring(6, 8)).toInt(),
+                    (utctime.substring(8, 10)).toInt(),
+                    (utctime.substring(10, 12)).toInt(),
+                    (utctime.substring(12, 14)).toInt());
+    lastUnixTime = String(unixTimeInt);
+    lastUnixTime = lastUnixTime.substring(0, 10);
+    // badCharChecker(lastUnixTime);
+
+    unsigned long gpsTimeInt = unixTimeInt - 315961182 ; //315964782 - 3600
+    gpsTime = String(gpsTimeInt);
+    t2 = gpsTimeInt;
+ 
 }
 void sendAtCom(char *AtCom) {
   flushSim();
