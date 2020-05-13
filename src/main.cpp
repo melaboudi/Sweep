@@ -172,12 +172,12 @@ void loop() {
       if(((t2 - t3) >= (te-15))){
         t3=t2; 
         if ((getCounter()%limitToSend)!=0) 
-        { 
+        { gprsOn();
           httpPing();
           if(!ping){
             uint16_t batchCounter=getCounter()/limitToSend;
             uint16_t startingPoint=batchCounter*limitToSend;
-            if(httpPostFromTo(startingPoint,getCounter())){
+            if(httpPostFromTo(startingPoint,getCounter())){getGpsData(); gprsOff();
             clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
             decrementCounter(getCounter()%limitToSend);
             for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
@@ -196,7 +196,7 @@ void loop() {
                 }
               }
             }
-          }
+          }else{gprsOff();}
         }
       }else {                          
         if ((getCounter()>=limitToSend)&&((t2 - t3) < (te-40))){httpTimeout=27000;httpPostMaster();httpTimeout=8000;}
