@@ -115,12 +115,12 @@
   void sendFromFram(uint16_t start,uint16_t length);
   void updateGpsTime();
 
-  int limitToSend =10;
-  unsigned long te =190; //le temps entre les envoies
+  int limitToSend =20;
+  unsigned long te =580; //le temps entre les envoies
   // unsigned long te =574; //le temps entre les envoies
   unsigned long t1 = 0; //le temps du dernier point inséré
   unsigned long t2 = 0; //le temps du dernier point capté
-  uint16_t ti = 20; //le temps entre chaque insertion
+  uint16_t ti = 30; //le temps entre chaque insertion
   // uint16_t ti = 30; //le temps entre chaque insertion
   unsigned long t3 = 0; //le temps du dernier envoie
   String previousUnixTime="";
@@ -153,77 +153,81 @@
     while (getGsmStat() != 1) {
       delay(500);
     }
-    gprsOn();httpPing();gps();
-    // attachPinChangeInterrupt(digitalPagit diffinToPinChangeInterrupt(intPin), IntRoutine, RISING);
-    // writeDataFramDebug("x",32079);
+    //gprsOn();httpPing();
+    gps();
   }
 
 void loop() {
   if(getCounter()>480){clearMemory(31999);clearMemoryDebug(32003);resetSS();}
   updateGpsTime();
-  if((t2 - t1) >= (ti-1)){
+  if((t2 - t1) >= (ti)){
     if (!getGpsData()) {
       if (!getGnsStat()) {if (gnsFailCounter == 2) {resetSS();} else {turnOnGns();delay(1000);gnsFailCounter++;}}
-        if(restarted){if (ReStartCounter == 10) {resetSS();}else {delay(2000);ReStartCounter++;}
-        }else if (started){if (FirstStartCounter == 1) {resetSS();}else{delay(60000);FirstStartCounter++;}
-        }else if((!restarted)&&(!started)){if (gpsFailCounter == 10) {resetSS();}else {delay(1000);gpsFailCounter++;}}
+      if(restarted){if (ReStartCounter == 10) {resetSS();}else {delay(2000);ReStartCounter++;}
+      }else if (started){if (FirstStartCounter == 1) {resetSS();}else{delay(60000);FirstStartCounter++;}
+      }else if((!restarted)&&(!started)){if (gpsFailCounter == 10) {resetSS();}else {delay(1000);gpsFailCounter++;}}
     }else{
       t1=t2;
-      if(((t2 - t3) >= (te-15))){
-        t3=t2; 
-        if ((getCounter()%limitToSend)!=0) 
-        { //gprsOn();
-          httpPing();
-          if(!ping){
+      if(((t2 - t3) >= (te-15))){t3=t2; 
+        gprsOn();httpPing();getGpsData();
+        if(!ping){
+          if ((getCounter()%limitToSend)!=0) { 
             uint16_t batchCounter=getCounter()/limitToSend;
             uint16_t startingPoint=batchCounter*limitToSend;
-            if(httpPostFromTo(startingPoint,getCounter())){//getGpsData(); gprsOff();
-            clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
-                              decrementCounter(getCounter()%limitToSend);
-                              found =false;
-                              for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-                                if(getBatchCounter(i)==1){found=true;}
-                              }if(!found){clearMemoryDebug(32003);}
-            }else{                     //if we have collected a complete batch, send it
-              uint16_t batchCounter=getCounter()/limitToSend-1;
-              uint16_t startingPoint=batchCounter*limitToSend;
-              if(getBatchCounter(batchCounter)==1){
-                if(httpPostFromTo((batchCounter)*limitToSend,((batchCounter+1)*limitToSend))){
-                  //getGpsData(); gprsOff();
-                  clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
-                              decrementCounter(limitToSend);
-                              found =false;
-                              for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-                                if(getBatchCounter(i)==1){found=true;}
-                              }if(!found){clearMemoryDebug(32003);}
-                }
+            if(httpPostFromTo(startingPoint,getCounter())){
+              clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+              decrementCounter(getCounter()%limitToSend);
+              found =false;
+              for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+                if(getBatchCounter(i)==1){found=true;}
+              }if(!found){clearMemoryDebug(32003);}
+            }
+          }else{                     //if we have collected a complete batch, send it
+            uint16_t batchCounter=getCounter()/limitToSend-1;
+            uint16_t startingPoint=batchCounter*limitToSend;
+            if(getBatchCounter(batchCounter)==1){
+              if(httpPostFromTo((batchCounter)*limitToSend,((batchCounter+1)*limitToSend))){
+                clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+                decrementCounter(limitToSend);
+                found =false;
+                for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+                  if(getBatchCounter(i)==1){found=true;}
+                }if(!found){clearMemoryDebug(32003);}
               }
             }
-          }//else{gprsOff();}
-        }
-      }else {                          
-        if ((getCounter()>=limitToSend)&&((t2 - t3) < (te-40))){httpTimeout=27000;httpPostMaster();httpTimeout=8000;}
-        }
+          }
+        }gprsOff();
+      }
     }
+  }else {                          
+    if ((getCounter()>=limitToSend)&&((t2 - t3) < (te-40))){
+      gprsOn();getGpsData(); 
+      httpTimeout=27000;httpPostMaster();httpTimeout=8000;
+      getGpsData();gprsOff();}
   }
 }
 void httpPostMaster(){
   found =false;
-  for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-    if(getBatchCounter(i)==1){found=true;
-      if(httpPostFromTo((i)*limitToSend,((i+1)*limitToSend))){
-        //getGpsData(); gprsOff();
-        writeDataFramDebug("0",(32080+i));
-        clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
-      }else{
-        uint8_t j=0;while (ping&&(j<3)){httpPing();j++;}if (j==3){resetSS();}
-        httpPostFromTo((i)*limitToSend,((i+1)*limitToSend));
-        // getGpsData(); gprsOff();
-        writeDataFramDebug("0",(32080+i));
-        clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
+  httpPing();
+  if(!ping){
+    for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+      if(getBatchCounter(i)==1){found=true;
+        if(httpPostFromTo((i)*limitToSend,((i+1)*limitToSend))){
+          writeDataFramDebug("0",(32080+i));
+          clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
+        }else{
+          uint8_t j=0;while (ping&&(j<3)){httpPing();j++;}if (j==3){resetSS();}
+          httpPostFromTo((i)*limitToSend,((i+1)*limitToSend));
+          writeDataFramDebug("0",(32080+i));
+          clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
+        }
       }
     }
-  }if(!found&&(getCounter()/limitToSend)==0){clearMemoryDebug(32003);}
+  }else{
+    for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+      if(getBatchCounter(i)==1){found=true;}}
+  }
+  if(!found&&(getCounter()/limitToSend)==0){clearMemoryDebug(32003);}
 }
 bool gps(){
   if (!getGpsData()) {
