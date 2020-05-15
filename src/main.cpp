@@ -1,5 +1,6 @@
 // #define MOTO
-//inits
+// #define CAR
+#define SWEEP
   #include "LowPower.h"
   #include "PinChangeInterrupt.h"
   #define intPin 8
@@ -128,7 +129,7 @@
   void setup() {
     delay(100);
     fram.begin();
-#ifndef MOTO
+#ifdef CAR
       pinMode(A2, OUTPUT);//VIO
       pinMode(1, OUTPUT);//SS TX
       pinMode(A0, OUTPUT);//sim Reset
@@ -146,6 +147,17 @@
     digitalWrite(6, HIGH);
     digitalWrite(3, HIGH);
 #endif
+#ifdef SWEEP
+  pinMode(8, OUTPUT);//VIO
+  pinMode(A3, INPUT);//sim Power Status
+  pinMode(A0, OUTPUT);//LED
+  pinMode(0, INPUT);//SS RX
+  pinMode(1, OUTPUT);//SS TX
+  pinMode(6, OUTPUT);//sim Reset
+  digitalWrite(6, HIGH);
+  digitalWrite(A0, LOW);
+  digitalWrite(8, HIGH);
+#endif
     powerDown();
     powerUp();
     Serial.begin(4800);
@@ -153,13 +165,16 @@
     while (getGsmStat() != 1) {
       delay(500);
     }
-    //gprsOn();httpPing();
     gps();
   }
 
 void loop() {
-  if(getCounter()>480){clearMemory(31999);clearMemoryDebug(32003);resetSS();}
+  
+  if(getCounter()>480){clearMemory(31999);clearMemoryDebug(32003);resetSS();
+  for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){if(getBatchCounter(i)==1){writeDataFramDebug("0",(32080+i));}}}
+  
   updateGpsTime();
+  
   if((t2 - t1) >= (ti)){
     if (!getGpsData()) {
       if (!getGnsStat()) {if (gnsFailCounter == 2) {resetSS();} else {turnOnGns();delay(1000);gnsFailCounter++;}}
@@ -167,6 +182,9 @@ void loop() {
       }else if (started){if (FirstStartCounter == 1) {resetSS();}else{delay(60000);FirstStartCounter++;}
       }else if((!restarted)&&(!started)){if (gpsFailCounter == 10) {resetSS();}else {delay(1000);gpsFailCounter++;}}
     }else{
+      #ifdef SWEEP
+      blinkLED(1);
+      #endif
       t1=t2;
       if(((t2 - t3) >= (te-15))){t3=t2; 
         gprsOn();httpPing();getGpsData();
@@ -175,59 +193,60 @@ void loop() {
             uint16_t batchCounter=getCounter()/limitToSend;
             uint16_t startingPoint=batchCounter*limitToSend;
             if(httpPostFromTo(startingPoint,getCounter())){
-              clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
-              decrementCounter(getCounter()%limitToSend);
-              found =false;
-              for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-                if(getBatchCounter(i)==1){found=true;}
-              }if(!found){clearMemoryDebug(32003);}
+            clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+            decrementCounter(getCounter()%limitToSend);
+            found =false;
+            for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+              if(getBatchCounter(i)==1){found=true;}
+            }if(!found){clearMemoryDebug(32003);}
             }
           }else{                     //if we have collected a complete batch, send it
             uint16_t batchCounter=getCounter()/limitToSend-1;
             uint16_t startingPoint=batchCounter*limitToSend;
             if(getBatchCounter(batchCounter)==1){
               if(httpPostFromTo((batchCounter)*limitToSend,((batchCounter+1)*limitToSend))){
-                clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
-                decrementCounter(limitToSend);
-                found =false;
-                for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-                  if(getBatchCounter(i)==1){found=true;}
-                }if(!found){clearMemoryDebug(32003);}
+              clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+              decrementCounter(limitToSend);
+              found =false;
+              for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
+                if(getBatchCounter(i)==1){found=true;}
+              }if(!found){clearMemoryDebug(32003);}
               }
             }
           }
         }gprsOff();
       }
     }
-  }else {                          
-    if ((getCounter()>=limitToSend)&&((t2 - t3) < (te-40))){
+  }else if(((t2 - t1) <= (ti/3))&&(getCounter()>=limitToSend)&&((t2 - t3) < (te-40))) {                          
       gprsOn();getGpsData(); 
       httpTimeout=27000;httpPostMaster();httpTimeout=8000;
-      getGpsData();gprsOff();}
+      t3=t2;t1=t2;
+      getGpsData();gprsOff();
   }
 }
 void httpPostMaster(){
-  found =false;
   httpPing();
   if(!ping){
     for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-      if(getBatchCounter(i)==1){found=true;
-        if(httpPostFromTo((i)*limitToSend,((i+1)*limitToSend))){
-          writeDataFramDebug("0",(32080+i));
-          clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
-        }else{
+      if(getBatchCounter(i)==1){
+        if(!httpPostFromTo((i)*limitToSend,((i+1)*limitToSend))){
+          getGpsData();
           uint8_t j=0;while (ping&&(j<3)){httpPing();j++;}if (j==3){resetSS();}
           httpPostFromTo((i)*limitToSend,((i+1)*limitToSend));
-          writeDataFramDebug("0",(32080+i));
-          clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
         }
+        writeDataFramDebug("0",(32080+i));
+        clearMemoryDiff((i)*limitToSend*SizeRec,((i+1)*limitToSend*SizeRec));
+        getGpsData();
       }
     }
-  }else{
-    for (uint16_t i = 0; i<(getCounter()/limitToSend); i++){
-      if(getBatchCounter(i)==1){found=true;}}
+    if ((getCounter()%limitToSend)!=0) { 
+      uint16_t batchCounter=getCounter()/limitToSend;
+      uint16_t startingPoint=batchCounter*limitToSend;
+      if(!httpPostFromTo(startingPoint,getCounter())){httpPostFromTo(startingPoint,getCounter());}
+      clearMemoryDiff(startingPoint*SizeRec,getCounter()*SizeRec); 
+      clearMemoryDebug(32003);
+    }
   }
-  if(!found&&(getCounter()/limitToSend)==0){clearMemoryDebug(32003);}
 }
 bool gps(){
   if (!getGpsData()) {
@@ -286,7 +305,13 @@ bool httpPostFromTo(uint16_t p1, uint16_t p2) {
     } else OkToSend = false;
     if (OkToSend) {
       if (fireHttpAction(httpTimeout, "AT+HTTPACTION=", ",200,", "ERROR")) {
+        #ifdef SWEEP
+        blinkLED(2);
+        #endif
         sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return true;} else {
+          #ifdef SWEEP
+          blinkLED(4);
+          #endif
           sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return false;}
     }
   }else{return false;}
