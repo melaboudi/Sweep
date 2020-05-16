@@ -49,7 +49,6 @@
   String batLev=" ";
   volatile uint16_t wakeUpCounter = 0;
   char newC[3]={0};
-  unsigned long startPinging;
   unsigned long pingingInterval=40000;
   //6  45----7points 9secondsSend  ok
   //6  41----7points 10secondsSend
@@ -70,7 +69,7 @@
   bool found=false;
   bool httpPostCustom(char custom);
   void badCharChecker(String data);
-  void IntRoutine(void);
+  void tine(void);
   void httpPostMaster();
   void httpPing();
   bool httpPostFromTo(uint16_t p1, uint16_t p2);
@@ -93,7 +92,6 @@
   void powerDown();
   void blinkLED(int k);
   void blinkLEDFast(int k);
-  void simHardReset();
   void clearMemory(uint16_t size);
   void clearMemoryDiff(uint16_t size, uint16_t size1);
   void clearMemoryDebug(uint16_t size);
@@ -105,12 +103,8 @@
   void incrementValue(uint16_t position, uint8_t largeur);
   bool sendAtFram(long timeout, uint16_t pos1, uint16_t pos2, char* Rep, char* Error, int nbRep);
   bool fireHttpAction(long timeout, char* Commande, char* Rep, char* Error);
-  void trace(unsigned long unixTime, uint8_t type);
-  void clearValue();
-  bool insertGpsData();
   void resetSS();
   void cfunReset();
-  void hardResetSS();
   int getBatchCounter(uint16_t i);
   bool gps();
   void sendFromFram(uint16_t start,uint16_t length);
@@ -118,11 +112,9 @@
 
   int limitToSend =20;
   unsigned long te =580; //le temps entre les envoies
-  // unsigned long te =574; //le temps entre les envoies
   unsigned long t1 = 0; //le temps du dernier point inséré
   unsigned long t2 = 0; //le temps du dernier point capté
   uint16_t ti = 30; //le temps entre chaque insertion
-  // uint16_t ti = 30; //le temps entre chaque insertion
   unsigned long t3 = 0; //le temps du dernier envoie
   String previousUnixTime="";
   uint16_t iterations=880; //sleeping time = iterations X 8 Seconds
@@ -157,6 +149,9 @@
   digitalWrite(6, HIGH);
   digitalWrite(A0, LOW);
   digitalWrite(8, HIGH);
+  #ifdef SWEEP
+    digitalWrite(A0,HIGH);
+  #endif 
 #endif
     powerDown();
     powerUp();
@@ -165,8 +160,8 @@
     while (getGsmStat() != 1) {
       delay(500);
     }
-    gps();
-  }
+    while (!gps());
+}
 
 void loop() {
   
@@ -183,7 +178,7 @@ void loop() {
       }else if((!restarted)&&(!started)){if (gpsFailCounter == 10) {resetSS();}else {delay(1000);gpsFailCounter++;}}
     }else{
       #ifdef SWEEP
-      blinkLED(1);
+      if (batteryLevel().toInt()<24){blinkLEDFast(15);}else{blinkLED(1);}
       #endif
       t1=t2;
       if(((t2 - t3) >= (te-15))){t3=t2; 
@@ -220,7 +215,7 @@ void loop() {
     }
   }else if(((t2 - t1) <= (ti/3))&&(getCounter()>=limitToSend)&&((t2 - t3) < (te-40))) {                          
       gprsOn();getGpsData(); 
-      httpTimeout=27000;httpPostMaster();httpTimeout=8000;
+      httpTimeout=20000;httpPostMaster();httpTimeout=8000;
       t3=t2;t1=t2;
       getGpsData();gprsOff();
   }
@@ -307,15 +302,10 @@ bool httpPostFromTo(uint16_t p1, uint16_t p2) {
       } else OkToSend = false;
     } else OkToSend = false;
     if (OkToSend) {
-      if (fireHttpAction(httpTimeout, "AT+HTTPACTION=", ",200,", "ERROR")) {
-        #ifdef SWEEP
-        blinkLED(2);
-        #endif
-        sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return true;} else {
-          #ifdef SWEEP
-          blinkLED(4);
-          #endif
-          sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return false;}
+      if (fireHttpAction(httpTimeout, "AT+HTTPACTION=", ",200,", "ERROR")) 
+      {sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return true;} 
+        else 
+        {sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return false;}
     }
   }else{return false;}
   
@@ -386,11 +376,6 @@ void getWriteFromFramFromZero(uint16_t p1, uint16_t p2) {
     writeDataFram(Buffer);
   }
 }
-void IntRoutine() {
-   wakeUpCounter = iterations;
-  Serial.flush();
-  detachPinChangeInterrupt(digitalPinToPinChangeInterrupt(intPin));
-}
 void decrementCounter(uint16_t value) {
   int countVal = getCounter();
   countVal -= value;
@@ -422,123 +407,123 @@ bool getGpsData() {
   char gpsData[120] = {0};
   Serial.println("AT+CGNSINF");
   Serial.readBytesUntil('O', gpsData, 119);
-    String gpsdatastr = String(gpsData);
+  String gpsdatastr = String(gpsData);
 
-    uint8_t ind1 = gpsdatastr.indexOf(',');
-    //  String mode = gpsdatastr.substring(0, ind1);
+  uint8_t ind1 = gpsdatastr.indexOf(',');
+  //  String mode = gpsdatastr.substring(0, ind1);
 
-    uint8_t ind2 = gpsdatastr.indexOf(',', ind1 + 1);
-    fixStatus = gpsdatastr.substring(ind1 + 1, ind2);
-    fixStatus = fixStatus.substring(0, 1);
-    
-    uint8_t ind3 = gpsdatastr.indexOf(',', ind2 + 1);
-    String utctime = gpsdatastr.substring(ind2 + 1, ind3);
-    timestamp32bits stamp = timestamp32bits();
+  uint8_t ind2 = gpsdatastr.indexOf(',', ind1 + 1);
+  fixStatus = gpsdatastr.substring(ind1 + 1, ind2);
+  fixStatus = fixStatus.substring(0, 1);
+  
+  uint8_t ind3 = gpsdatastr.indexOf(',', ind2 + 1);
+  String utctime = gpsdatastr.substring(ind2 + 1, ind3);
+  timestamp32bits stamp = timestamp32bits();
 
-    unixTimeInt = stamp.timestamp(
-                    (utctime.substring(2, 4)).toInt(),
-                    (utctime.substring(4, 6)).toInt(),
-                    (utctime.substring(6, 8)).toInt(),
-                    (utctime.substring(8, 10)).toInt(),
-                    (utctime.substring(10, 12)).toInt(),
-                    (utctime.substring(12, 14)).toInt());
-    lastUnixTime = String(unixTimeInt);
-    lastUnixTime = lastUnixTime.substring(0, 10);
-    // badCharChecker(lastUnixTime);
+  unixTimeInt = stamp.timestamp(
+                  (utctime.substring(2, 4)).toInt(),
+                  (utctime.substring(4, 6)).toInt(),
+                  (utctime.substring(6, 8)).toInt(),
+                  (utctime.substring(8, 10)).toInt(),
+                  (utctime.substring(10, 12)).toInt(),
+                  (utctime.substring(12, 14)).toInt());
+  lastUnixTime = String(unixTimeInt);
+  lastUnixTime = lastUnixTime.substring(0, 10);
+  // badCharChecker(lastUnixTime);
 
-    unsigned long gpsTimeInt = unixTimeInt - 315961182 ; //315964782 - 3600
-    gpsTime = String(gpsTimeInt);
-    t2 = gpsTimeInt;
+  unsigned long gpsTimeInt = unixTimeInt - 315961182 ; //315964782 - 3600
+  gpsTime = String(gpsTimeInt);
+  t2 = gpsTimeInt;
 
-    uint8_t ind4 = gpsdatastr.indexOf(',', ind3 + 1);
-    latitude = gpsdatastr.substring(ind3 + 1, ind4);
-    //latitude = latitude.substring(0, 9);
-    while (strlen(latitude.c_str()) < 10) {
-      latitude += '0';
-    }
+  uint8_t ind4 = gpsdatastr.indexOf(',', ind3 + 1);
+  latitude = gpsdatastr.substring(ind3 + 1, ind4);
+  //latitude = latitude.substring(0, 9);
+  while (strlen(latitude.c_str()) < 10) {
+    latitude += '0';
+  }
 
-    uint8_t ind5 = gpsdatastr.indexOf(',', ind4 + 1);
-    longitude = gpsdatastr.substring(ind4 + 1, ind5);
-    while (strlen(longitude.c_str()) < 11) {
-      longitude += '0';
-    }
-    uint8_t ind6 = gpsdatastr.indexOf(',', ind5 + 1);
-    //  String altitude = gpsdatastr.substring(ind5 + 1, ind6);
+  uint8_t ind5 = gpsdatastr.indexOf(',', ind4 + 1);
+  longitude = gpsdatastr.substring(ind4 + 1, ind5);
+  while (strlen(longitude.c_str()) < 11) {
+    longitude += '0';
+  }
+  uint8_t ind6 = gpsdatastr.indexOf(',', ind5 + 1);
+  //  String altitude = gpsdatastr.substring(ind5 + 1, ind6);
 
-    uint8_t ind7 = gpsdatastr.indexOf(',', ind6 + 1);
-    speed = gpsdatastr.substring(ind6 + 1, ind7);
-    speed = speed.substring(0, 6);
-    while (strlen(speed.c_str()) < 6) {
-      speed = '0' + speed;
-    }
+  uint8_t ind7 = gpsdatastr.indexOf(',', ind6 + 1);
+  speed = gpsdatastr.substring(ind6 + 1, ind7);
+  speed = speed.substring(0, 6);
+  while (strlen(speed.c_str()) < 6) {
+    speed = '0' + speed;
+  }
 
-    uint8_t ind8 = gpsdatastr.indexOf(',', ind7 + 1);
-    course = gpsdatastr.substring(ind7 + 1, ind8);
-    course = course.substring(0, 6);
-    while (strlen(course.c_str()) < 6) {
-      course = '0' + course;
-    }
+  uint8_t ind8 = gpsdatastr.indexOf(',', ind7 + 1);
+  course = gpsdatastr.substring(ind7 + 1, ind8);
+  course = course.substring(0, 6);
+  while (strlen(course.c_str()) < 6) {
+    course = '0' + course;
+  }
 
-    uint8_t ind9 = gpsdatastr.indexOf(',', ind8 + 1);
-    //  String fixmode = gpsdatastr.substring(ind8 + 1, ind9);
-    uint8_t ind10 = gpsdatastr.indexOf(',', ind9 + 1);
-    //  String reserved1 = gpsdatastr.substring(ind9 + 1, ind10);
-    uint8_t ind11 = gpsdatastr.indexOf(',', ind10 + 1);
-    //  String HDOP = gpsdatastr.substring(ind10 + 1, ind11);
+  uint8_t ind9 = gpsdatastr.indexOf(',', ind8 + 1);
+  //  String fixmode = gpsdatastr.substring(ind8 + 1, ind9);
+  uint8_t ind10 = gpsdatastr.indexOf(',', ind9 + 1);
+  //  String reserved1 = gpsdatastr.substring(ind9 + 1, ind10);
+  uint8_t ind11 = gpsdatastr.indexOf(',', ind10 + 1);
+  //  String HDOP = gpsdatastr.substring(ind10 + 1, ind11);
 
-    uint8_t ind12 = gpsdatastr.indexOf(',', ind11 + 1);
-    pdop = gpsdatastr.substring(ind11 + 1, ind12);
-    pdop = pdop.substring(0, 4);
-    while (strlen(pdop.c_str()) < 4) {
-      pdop = '0' + pdop;
-    }
+  uint8_t ind12 = gpsdatastr.indexOf(',', ind11 + 1);
+  pdop = gpsdatastr.substring(ind11 + 1, ind12);
+  pdop = pdop.substring(0, 4);
+  while (strlen(pdop.c_str()) < 4) {
+    pdop = '0' + pdop;
+  }
 
-    uint8_t ind13 = gpsdatastr.indexOf(',', ind12 + 1);
-    //  String VDOP = gpsdatastr.substring(ind12 + 1, ind13);
-    uint8_t ind14 = gpsdatastr.indexOf(',', ind13 + 1);
-    //  String reserved2 = gpsdatastr.substring(ind13 + 1, ind14);
-    uint8_t ind15 = gpsdatastr.indexOf(',', ind14 + 1);
-    String viewed_satellites = gpsdatastr.substring(ind14 + 1, ind15);
-    while (strlen(viewed_satellites.c_str()) < 2) {
-      viewed_satellites = '0' + viewed_satellites;
-    }
-    uint8_t ind16 = gpsdatastr.indexOf(',', ind15 + 1);
+  uint8_t ind13 = gpsdatastr.indexOf(',', ind12 + 1);
+  //  String VDOP = gpsdatastr.substring(ind12 + 1, ind13);
+  uint8_t ind14 = gpsdatastr.indexOf(',', ind13 + 1);
+  //  String reserved2 = gpsdatastr.substring(ind13 + 1, ind14);
+  uint8_t ind15 = gpsdatastr.indexOf(',', ind14 + 1);
+  String viewed_satellites = gpsdatastr.substring(ind14 + 1, ind15);
+  while (strlen(viewed_satellites.c_str()) < 2) {
+    viewed_satellites = '0' + viewed_satellites;
+  }
+  uint8_t ind16 = gpsdatastr.indexOf(',', ind15 + 1);
 
-    used_satellites = gpsdatastr.substring(ind15 + 1, ind16);
-    used_satellites = used_satellites.substring(0, 2);
-    while (strlen(used_satellites.c_str()) < 2) {
-      used_satellites = '0' + used_satellites;
-    }
+  used_satellites = gpsdatastr.substring(ind15 + 1, ind16);
+  used_satellites = used_satellites.substring(0, 2);
+  while (strlen(used_satellites.c_str()) < 2) {
+    used_satellites = '0' + used_satellites;
+  }
 
-    //  uint8_t ind17 = gpsdatastr.indexOf(',', ind16 + 1);
-    ////  String reserved3 = gpsdatastr.substring(ind16 + 1, ind17);
-    //  uint8_t ind18 = gpsdatastr.indexOf(',', ind17 + 1);
-    ////  String N0max = gpsdatastr.substring(ind17 + 1, ind18);
-    //  uint8_t ind19 = gpsdatastr.indexOf(',', ind18 + 1);
-    ////  String HPA = gpsdatastr.substring(ind18 + 1, ind19);
-    //  uint8_t ind20 = gpsdatastr.indexOf(',', ind19 + 1);
-    ////  String VPA = gpsdatastr.substring(ind19);
-    //////////////////////////////////////////////////////////////////
-    // badCharChecker(imei);
-    // imeiChecker(imei);
-    badCharChecker(fixStatus);
-    badCharChecker(latitude);
-    badCharChecker(longitude);
-    badCharChecker(speed);
-    badCharChecker(used_satellites);
-    badCharChecker(course);
-    badCharChecker(batteryLevel());
-    badCharChecker(lastUnixTime);
- 
-    if (onOff) {
-      onOff = false;}
-    if ((fixStatus.toInt() == 1) && (latitude.toInt() != 0) && (longitude.toInt() != 0)&&(badCharCounter==0)&&(lastUnixTime!=previousUnixTime)) {
-      previousUnixTime=lastUnixTime;
-      started = false;
-      restarted=false;
-      insertMem();
-      return true;
-    } else {return false;badCharCounter=0;}  
+  //  uint8_t ind17 = gpsdatastr.indexOf(',', ind16 + 1);
+  ////  String reserved3 = gpsdatastr.substring(ind16 + 1, ind17);
+  //  uint8_t ind18 = gpsdatastr.indexOf(',', ind17 + 1);
+  ////  String N0max = gpsdatastr.substring(ind17 + 1, ind18);
+  //  uint8_t ind19 = gpsdatastr.indexOf(',', ind18 + 1);
+  ////  String HPA = gpsdatastr.substring(ind18 + 1, ind19);
+  //  uint8_t ind20 = gpsdatastr.indexOf(',', ind19 + 1);
+  ////  String VPA = gpsdatastr.substring(ind19);
+  //////////////////////////////////////////////////////////////////
+  // badCharChecker(imei);
+  // imeiChecker(imei);
+  badCharChecker(fixStatus);
+  badCharChecker(latitude);
+  badCharChecker(longitude);
+  badCharChecker(speed);
+  badCharChecker(used_satellites);
+  badCharChecker(course);
+  badCharChecker(batteryLevel());
+  badCharChecker(lastUnixTime);
+
+  if (onOff) {
+    onOff = false;}
+  if ((fixStatus.toInt() == 1) && (latitude.toInt() > 20) && (longitude.toInt() < 0)&&(badCharCounter==0)&&(lastUnixTime!=previousUnixTime)) {
+    previousUnixTime=lastUnixTime;
+    started = false;
+    restarted=false;
+    insertMem();
+    return true;
+  } else {return false;badCharCounter=0;}  
 }
 void updateGpsTime() {
   fixStatus = gpsTime = latitude = longitude = used_satellites = viewed_satellites = speed = " ";
@@ -720,15 +705,6 @@ void blinkLEDFast(int k) {
     delay(20);
   }
 }
-void simHardReset() {
-  digitalWrite(6, HIGH);
-  delay(10);
-  digitalWrite(6, LOW);
-  delay(200);
-  digitalWrite(6, HIGH);
-  powerUp();
-  Serial.begin(4800);
-}
 void clearMemory(uint16_t size) {
   for (uint16_t a = 0; a < size; a++) {
     fram.write8(a, 0);
@@ -851,26 +827,6 @@ void resetSS() {
   FirstStartCounter = 0;
   ReStartCounter=0;
 }
-void hardResetSS() {
-  // pinMode(5, OUTPUT);//PWR KEY
-  // digitalWrite(5, LOW);
-  // delay(2000);
-  // pinMode(5, INPUT_PULLUP);
-  // delay(100);
-  // powerUp();
-  // Serial.begin(4800);
-  sendAtFram(6000, 31730, 11, "OK", "ERROR", 1);  //CFUN=1,1
-  Serial.begin(4800);
-  turnOnGns();
-  while (getGsmStat() != 1) {delay(500);}
-  gprsOn();
-  restarted=true;
-  gnsFailCounter = 0;
-  gpsFailCounter = 0;
-  httpActionFail = 0;
-  FirstStartCounter = 0;
-  ReStartCounter=0;
-}
 void cfunReset(){
   sendAtFram(6000, 31741, 9, "OK", "ERROR", 1);  //CFUN=0
   sendAtFram(6000, 31140, 9, "OK", "ERROR", 1);  //CFUN=1
@@ -926,42 +882,17 @@ bool fireHttpAction(long timeout, char* Commande, char* Rep, char* Error) {
   if(Serial.findUntil(Rep, Error)){
     // sendAtFram(2000, 31241, 11, "OK", "ERROR", 5); // httpterm
     ping =false;
+    #ifdef SWEEP
+    blinkLED(2);
+    #endif
     return true;
   } else{
-    ping = true;startPinging=millis();
+    #ifdef SWEEP
+    blinkLED(4);
+    #endif
+    ping = true;
     return false;
     }
   Serial.setTimeout(1000);
-}
-void trace(unsigned long unixTime, uint8_t type) {
-  uint8_t jour = (int)(((unixTime / 86400) + 4) % 7) + 1; //1 dimanche
-  uint16_t positionEcriture = 32000 + jour * 10;
-  if (jour == 2) {
-    clearValue();
-  }
-  switch (type) {
-    case 1:
-      incrementValue(positionEcriture, 2);
-      break;
-    case 2:
-      incrementValue(positionEcriture + 3, 3);
-      break;
-    case 3:
-      incrementValue(positionEcriture + 6, 3);
-      break;
-  }
-}
-void clearValue() {
-  if (getValue(32010, 2) > 0 ) {
-    clearMemoryDiff(32010, 32080);
-  }
-}
-bool insertGpsData() {
-  if (getGpsData()) {
-    gpsFailCounter = 0;
-    insertMem();
-    t1 = t2;
-    return true;
-  } else return false;
 }
 
