@@ -217,7 +217,8 @@ void loop() {
     }
   }else if(((t2 - t1) <= (ti/3))&&(getCounter()>=limitToSend)&&((t2 - t3) < (te-40))) {                          
       gprsOn();getGpsData(); 
-      httpTimeout=20000;httpPostMaster();httpTimeout=8000;
+      // httpTimeout=20000;httpPostMaster();httpTimeout=8000;
+      httpPostMaster();
       t3=t2;t1=t2;
       getGpsData();gprsOff();
   }
@@ -671,6 +672,7 @@ void writeDataFramDebug(char* dataFram, long p1) {
   //for (unsigned long i = p1; i <= (p1 + strlen(dataFram)); i++)
   for (unsigned long i = p1; i < (p1 + strlen(dataFram)); i++)
   {
+    delay(1);
     fram.write8(i, dataFram[(i - p1)]);
   }
 }
@@ -731,7 +733,7 @@ void insertMem() {
   // char* ourImei=imei.c_str();
   // writeDataFram(ourImei);                    //15
   //getWriteFromFram(31054,26); //"\" Fc=\"WGS84\" FixPosition=\""
-  writeDataFramDebug("9",32767);
+  // writeDataFramDebug("9",32767);
   writeDataFram(fixStatus.c_str());                 //1
   //getWriteFromFram(31080,7); //"\" Lat=\""
   writeDataFram(latitude.c_str());                  //10
