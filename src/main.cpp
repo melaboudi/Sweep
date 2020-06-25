@@ -1,6 +1,8 @@
 // #define MOTO
 // #define CAR
 #define SWEEP
+#define VELOVOLT
+// #define GEORED
   #include "LowPower.h"
   #include "PinChangeInterrupt.h"
   #define intPin 8
@@ -255,13 +257,13 @@ bool gps(){
         return false;
     }else{return true;}   
 }
+
 bool httpPostFromTo(uint16_t p1, uint16_t p2) {
   if(!ping){
     bool OkToSend = true;
-    //sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);        //"AT+HTTPTERM"
     if (sendAtFram(3000, 31254, 11, "OK", "ERROR", 5)) { //"AT+HTTPINIT"
       if (sendAtFram(3000, 31267, 19, "OK", "ERROR", 5)) { //"AT+HTTPPARA=\"CID\",1"
-        if (sendAtFram(5000, 31609, 73, "OK", "ERROR", 5)) { //"AT+HTTPPARA=\"URL\",\"http://casa-interface.casabaia.ma/commandes.php\""
+        if (sendAtFram(5000, 31609, 73, "OK", "ERROR", 5)) { //URL VELOVOLT
           Serial.setTimeout(10000);
           flushSim();
           Serial.print("AT+HTTPDATA=");
@@ -307,9 +309,10 @@ bool httpPostFromTo(uint16_t p1, uint16_t p2) {
         else 
         {sendAtFram(5000, 31241, 11, "OK", "ERROR", 5);return false;}
     }
-  }else{return false;}
-  
+  }else{return false;}  
 }
+
+
 void httpPing() {
   bool OkToSend = true;
   if (sendAtFram(2500, 31254, 11, "OK", "ERROR", 5)) { //"AT+HTTPINIT"
